@@ -1,0 +1,47 @@
+# 配置文件
+data:
+  input_path: 'data/all_conformers_data.csv'
+  output_dir: 'outputs/'
+  test_size: 0.2
+  val_size: 0.1
+  random_seed: 42
+
+preprocessing:
+  handle_missing: true
+  remove_outliers: true
+  normalize: true
+
+features:
+  key_features:
+    - homo
+    - lumo
+    - homo_lumo_gap
+    - s1_t1_gap
+    - s1_t2_gap
+    - num_inverted_gaps
+    - primary_inversion_gap
+  
+model:
+  deep_learning:
+    hidden_dims: [256, 128, 64]
+    dropout: 0.3
+    learning_rate: 0.001
+    batch_size: 32
+    epochs: 100
+    early_stopping_patience: 20
+    
+  xgboost:
+    n_estimators: [100, 200, 300]
+    max_depth: [3, 5, 7]
+    learning_rate: [0.01, 0.1, 0.3]
+    
+evaluation:
+  metrics:
+    - accuracy
+    - auc
+    - f1
+    - confusion_matrix
+    
+interpretation:
+  shap_samples: 100
+  top_features: 20

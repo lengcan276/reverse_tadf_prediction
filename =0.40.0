@@ -1,0 +1,25 @@
+Collecting shap
+  Downloading shap-0.48.0-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (25 kB)
+Requirement already satisfied: numpy in /vol1/home/lengcan/cleng/miniconda3/envs/H-CAAN/lib/python3.10/site-packages (from shap) (1.24.3)
+Requirement already satisfied: scipy in /vol1/home/lengcan/cleng/miniconda3/envs/H-CAAN/lib/python3.10/site-packages (from shap) (1.15.3)
+Requirement already satisfied: scikit-learn in /vol1/home/lengcan/cleng/miniconda3/envs/H-CAAN/lib/python3.10/site-packages (from shap) (1.6.1)
+Requirement already satisfied: pandas in /vol1/home/lengcan/cleng/miniconda3/envs/H-CAAN/lib/python3.10/site-packages (from shap) (2.2.3)
+Requirement already satisfied: tqdm>=4.27.0 in /vol1/home/lengcan/cleng/miniconda3/envs/H-CAAN/lib/python3.10/site-packages (from shap) (4.67.1)
+Requirement already satisfied: packaging>20.9 in /vol1/home/lengcan/cleng/miniconda3/envs/H-CAAN/lib/python3.10/site-packages (from shap) (24.2)
+Collecting slicer==0.0.8 (from shap)
+  Downloading slicer-0.0.8-py3-none-any.whl.metadata (4.0 kB)
+Requirement already satisfied: numba>=0.54 in /vol1/home/lengcan/cleng/miniconda3/envs/H-CAAN/lib/python3.10/site-packages (from shap) (0.61.2)
+Requirement already satisfied: cloudpickle in /vol1/home/lengcan/cleng/miniconda3/envs/H-CAAN/lib/python3.10/site-packages (from shap) (3.1.1)
+Requirement already satisfied: typing-extensions in /vol1/home/lengcan/cleng/miniconda3/envs/H-CAAN/lib/python3.10/site-packages (from shap) (4.12.2)
+Requirement already satisfied: llvmlite<0.45,>=0.44.0dev0 in /vol1/home/lengcan/cleng/miniconda3/envs/H-CAAN/lib/python3.10/site-packages (from numba>=0.54->shap) (0.44.0)
+Requirement already satisfied: python-dateutil>=2.8.2 in /vol1/home/lengcan/cleng/miniconda3/envs/H-CAAN/lib/python3.10/site-packages (from pandas->shap) (2.9.0.post0)
+Requirement already satisfied: pytz>=2020.1 in /vol1/home/lengcan/cleng/miniconda3/envs/H-CAAN/lib/python3.10/site-packages (from pandas->shap) (2025.2)
+Requirement already satisfied: tzdata>=2022.7 in /vol1/home/lengcan/cleng/miniconda3/envs/H-CAAN/lib/python3.10/site-packages (from pandas->shap) (2025.2)
+Requirement already satisfied: joblib>=1.2.0 in /vol1/home/lengcan/cleng/miniconda3/envs/H-CAAN/lib/python3.10/site-packages (from scikit-learn->shap) (1.4.2)
+Requirement already satisfied: threadpoolctl>=3.1.0 in /vol1/home/lengcan/cleng/miniconda3/envs/H-CAAN/lib/python3.10/site-packages (from scikit-learn->shap) (3.6.0)
+Requirement already satisfied: six>=1.5 in /vol1/home/lengcan/cleng/miniconda3/envs/H-CAAN/lib/python3.10/site-packages (from python-dateutil>=2.8.2->pandas->shap) (1.17.0)
+Downloading shap-0.48.0-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (996 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 996.4/996.4 kB 1.8 MB/s eta 0:00:00
+Downloading slicer-0.0.8-py3-none-any.whl (15 kB)
+Installing collected packages: slicer, shap
+Successfully installed shap-0.48.0 slicer-0.0.8

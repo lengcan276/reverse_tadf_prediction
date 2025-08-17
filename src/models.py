@@ -17,6 +17,9 @@ class MultiTaskTADFNet(nn.Module):
     
     def __init__(self, input_dim, hidden_dims=[256, 128, 64], dropout=0.3):
         super(MultiTaskTADFNet, self).__init__()
+        self.input_dim = input_dim  # 添加这行
+        self.hidden_dims = hidden_dims  # 添加这行
+        self.dropout = dropout  # 添加这行
         
         # 共享特征提取层
         layers = []

@@ -1,3 +1,4 @@
+#main.py
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.metrics import roc_auc_score
@@ -20,6 +21,7 @@ def main():
     # 1. 数据预处理
     print("Step 1: Data Preprocessing...")
     preprocessor = DataPreprocessor('./data/all_conformers_data.csv')
+    preprocessor.clean_data().extract_features_from_smiles().handle_missing_values().create_labels()
     # ========= 检查官能团特征是否存在 =========
     print("\n=== Checking functional group features in raw data ===")
     fg_features = ['has_nitro', 'count_nitro', 'has_triphenylamine', 
@@ -193,7 +195,6 @@ def main():
     print(f"Filtered from {len(critical_features)} to {len(high_quality_features)} high-quality features")
     critical_features = high_quality_features
     # 选择关键特征（方法3）
-    critical_features = fe.select_critical_features()
     # 打印官能团特征的存在情况
     fg_features = ['donor_score', 'acceptor_score', 'D_A_ratio', 'D_A_product', 
                    'donor_homo_effect', 'acceptor_lumo_effect', 'DA_st_gap_effect']
@@ -270,9 +271,20 @@ def main():
     continuous_features = []
     features_to_skip = set(binary_features + count_features + categorical_features)
 
+    # 强制包含密度特征（即使它们可能不在critical_features中）
+    must_normalize = [
+            'cyano_density', 'nitro_density', 'amino_density', 'carbonyl_density',
+            'aromatic_gap_product', 'st_gap_ratio', 'st_average_energy'
+        ]
+
+    for feat in must_normalize:
+        if feat in preprocessor.df.columns and feat not in features_to_skip:
+            continuous_features.append(feat)
+            print(f"  Added mandatory continuous feature: {feat}")
+    
+    # 然后添加其他连续特征
     for f in critical_features:
-        if f in preprocessor.df.columns and f not in features_to_skip:
-            # 额外检查：如果特征只有少数离散值，可能是分类特征
+        if f in preprocessor.df.columns and f not in features_to_skip and f not in continuous_features:
             unique_vals = preprocessor.df[f].dropna().unique()
             if len(unique_vals) <= 10:  # 少于10个唯一值
                 print(f"  Feature {f} has only {len(unique_vals)} unique values, checking if categorical...")
@@ -281,7 +293,6 @@ def main():
                     print(f"    -> Treating as categorical, not normalizing")
                     categorical_features.append(f)
                     continue
-            
             continuous_features.append(f)
 
     print(f"\nFeature type breakdown:")
@@ -341,10 +352,17 @@ def main():
     print(f"Saved full_features.csv: {full_df.shape}")
 
     # 保存关键特征子集 - 确保包含所有必要的列
-    save_columns = critical_features + ['is_TADF', 'is_rTADF', 'Molecule']
+    save_columns = critical_features + ['is_TADF', 'is_rTADF', 'Molecule', 'SMILES']
     save_columns = [col for col in save_columns if col in preprocessor.df.columns]
     critical_df = preprocessor.df[save_columns].copy()
-
+    # 验证关键特征
+    print("\n=== Feature Verification ===")
+    verify_features = ['has_3ring_nh2', 'has_5ring_nh2', 'has_5ring_oh', 
+                    'num_aromatic_rings', 'has_nitro', 'nitro_density']
+    for feat in verify_features:
+        if feat in critical_df.columns:
+            non_zero = (critical_df[feat] != 0).sum()
+            print(f"{feat}: {non_zero} non-zero values")
     # 移除全零列和空列
     print("\n=== Checking for empty columns in critical features ===")
     empty_cols_critical = []

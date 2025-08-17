@@ -152,7 +152,8 @@ def check_dependencies():
         'matplotlib': ('matplotlib', '>=3.4.0'),
         'seaborn': ('seaborn', '>=0.11.0'),
         'tqdm': ('tqdm', '>=4.62.0'),
-        'yaml': ('PyYAML', '>=5.4.0')
+        'yaml': ('PyYAML', '>=5.4.0'),
+        'rdkit': ('RDKit', '>=2020.09.1')
     }
     
     missing = []

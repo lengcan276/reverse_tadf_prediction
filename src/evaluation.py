@@ -19,10 +19,14 @@ def evaluate_model(model, test_loader, device='cpu'):
     with torch.no_grad():
         for X_batch, y_tadf, y_rtadf in test_loader:
             X_batch = X_batch.to(device)
-            tadf_pred, rtadf_pred = model(X_batch)
+            tadf_logits, rtadf_logits = model(X_batch)
             
-            predictions['tadf'].extend(tadf_pred.cpu().numpy())
-            predictions['rtadf'].extend(rtadf_pred.cpu().numpy())
+            # 转换logits为概率
+            tadf_probs = torch.sigmoid(tadf_logits)
+            rtadf_probs = torch.sigmoid(rtadf_logits)
+            
+            predictions['tadf'].extend(tadf_probs.cpu().numpy())
+            predictions['rtadf'].extend(rtadf_probs.cpu().numpy())
             labels['tadf'].extend(y_tadf.numpy())
             labels['rtadf'].extend(y_rtadf.numpy())
     

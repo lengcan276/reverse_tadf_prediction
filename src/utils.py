@@ -116,7 +116,12 @@ def save_model(model, save_path, optimizer=None, epoch=None, metrics=None):
             'epoch': epoch,
             'metrics': metrics
         }
-        
+        if hasattr(model, 'input_dim'):
+                checkpoint['model_config'] = {
+                    'input_dim': model.input_dim,
+                    'hidden_dims': getattr(model, 'hidden_dims', [256, 128, 64]),
+                    'dropout': getattr(model, 'dropout', 0.3)
+                }
         if optimizer:
             checkpoint['optimizer_state_dict'] = optimizer.state_dict()
         

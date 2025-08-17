@@ -20,18 +20,47 @@ class DataPreprocessor:
         """数据清洗"""
         print("Cleaning data...")
         initial_shape = self.df.shape
+        # 确保有Molecule和SMILES列
+        required_cols = ['Molecule', 'SMILES']
+        missing_cols = [col for col in required_cols if col not in self.df.columns]
+        if missing_cols:
+            # 尝试查找变体名称
+            if 'Molecule' not in self.df.columns and 'molecule' in self.df.columns:
+                self.df['Molecule'] = self.df['molecule']
+            if 'SMILES' not in self.df.columns:
+                for col in ['smiles', 'Smiles']:
+                    if col in self.df.columns:
+                        self.df['SMILES'] = self.df[col]
+                        break
+            
+            # 再次检查
+            missing_cols = [col for col in required_cols if col not in self.df.columns]
+            if missing_cols:
+                raise ValueError(f"Missing required columns: {missing_cols}")
         
+        print(f"Data has Molecule column: {'Molecule' in self.df.columns}")
+        print(f"Data has SMILES column: {'SMILES' in self.df.columns}")
         # 处理异常值（使用IQR方法）
         numeric_cols = self.df.select_dtypes(include=[np.number]).columns.tolist()
         
-        # 扩展保护特征列表 - 包含所有稀疏特征和计数特征
+        # 扩展保护特征列表 - 去重版本
         protected_features = [
-            # 原有的Calicene特征
-            'num_in_subs_3ring', 'num_in_subs_5ring', 'num_both_subs',
-            'donor_on_3ring', 'donor_on_5ring', 'acceptor_on_3ring', 'acceptor_on_5ring',
-            'in_sub_density', 'out_sub_density',
+            # === Calicene位置特征 ===
+            'num_in_subs_3ring', 'num_in_subs_5ring', 
+            'num_out_subs_3ring', 'num_out_subs_5ring',
+            'num_both_subs', 'num_sp_subs',
+            'subs_on_3ring', 'subs_on_5ring',
             
-            # one-hot特征
+            # === Calicene D/A分布 ===
+            'donor_on_3ring', 'donor_on_5ring', 
+            'acceptor_on_3ring', 'acceptor_on_5ring',
+            
+            # === Calicene密度特征 ===
+            'in_sub_density', 'out_sub_density',
+            'D_density', 'A_density',
+            'D_volume_density', 'A_volume_density',
+            
+            # === One-hot编码特征 ===
             'push_pull_pattern_none', 'push_pull_pattern_D5_A3',
             'push_pull_pattern_D3_A5', 'push_pull_pattern_D5_only',
             'push_pull_pattern_A3_only', 'push_pull_pattern_DD_balanced',
@@ -39,39 +68,47 @@ class DataPreprocessor:
             'ring_polarity_expected_aligned', 'ring_polarity_expected_reversed',
             'ring_polarity_expected_neutral',
             
-            # === 新增：保护所有3ring和5ring的计数特征 ===
-            'count_3ring_nh2', 'count_3ring_cn', 'count_3ring_cf3', 
-            'count_3ring_oh', 'count_3ring_ome',
-            'count_5ring_nh2', 'count_5ring_cn', 'count_5ring_cf3',
-            'count_5ring_oh', 'count_5ring_ome',
-            
-            # === 新增：保护所有has_前缀的二值特征 ===
+            # === 3ring和5ring特征 ===
             'has_3ring', 'has_5ring',
-            'has_3ring_nh2', 'has_3ring_cn', 'has_3ring_cf3', 'has_3ring_oh',
-            'has_5ring_nh2', 'has_5ring_cn', 'has_5ring_cf3', 'has_5ring_oh',
+            # 3ring具体取代基
+            'has_3ring_nh2', 'has_3ring_cn', 'has_3ring_cf3', 'has_3ring_oh', 'has_3ring_ome',
+            'count_3ring_nh2', 'count_3ring_cn', 'count_3ring_cf3', 'count_3ring_oh', 'count_3ring_ome',
+            # 5ring具体取代基
+            'has_5ring_nh2', 'has_5ring_cn', 'has_5ring_cf3', 'has_5ring_oh', 'has_5ring_ome',
+            'count_5ring_nh2', 'count_5ring_cn', 'count_5ring_cf3', 'count_5ring_oh', 'count_5ring_ome',
             
-            # === 新增：保护所有count_前缀的计数特征 ===
-            'count_cyano', 'count_nitro', 'count_amino', 'count_carbonyl',
-            'count_sulfone', 'count_triazine', 'count_boron', 'count_phosphorus',
-            'count_halogen', 'count_methyl', 'count_trifluoromethyl', 'count_phenyl',
-            'count_pyridine', 'count_thiophene', 'count_furan', 'count_pyrrole',
-            'count_carbazole', 'count_triphenylamine',
-            
-            # === 新增：保护所有has_前缀的存在性特征 ===
+            # === 通用官能团特征 ===
+            # has_前缀的存在性特征
             'has_cyano', 'has_nitro', 'has_amino', 'has_carbonyl', 'has_sulfone',
             'has_triazine', 'has_boron', 'has_phosphorus', 'has_halogen',
             'has_methyl', 'has_trifluoromethyl', 'has_phenyl', 'has_pyridine',
             'has_thiophene', 'has_furan', 'has_pyrrole', 'has_carbazole',
             'has_triphenylamine',
             
-            # === 新增：保护反转相关特征 ===
+            # count_前缀的计数特征
+            'count_cyano', 'count_nitro', 'count_amino', 'count_carbonyl',
+            'count_sulfone', 'count_triazine', 'count_boron', 'count_phosphorus',
+            'count_halogen', 'count_methyl', 'count_trifluoromethyl', 'count_phenyl',
+            'count_pyridine', 'count_thiophene', 'count_furan', 'count_pyrrole',
+            'count_carbazole', 'count_triphenylamine',
+            
+            # === 反转相关特征 ===
             'num_inverted_gaps', 'has_inversion', 'has_s1_t2_inversion',
             'favorable_for_inversion',
             
-            # === 新增：保护小环计数 ===
+            # === 环计数特征 ===
             'num_3_member_rings', 'num_4_member_rings', 'num_5_member_rings',
             'num_6_member_rings', 'num_7_member_rings', 'num_8_member_rings',
+            
+            # === 其他结构特征（可能也需要保护）===
+            'num_rings', 'num_aromatic_rings', 'num_saturated_rings',
+            'num_heteroatoms', 'num_N_atoms', 'num_O_atoms',
+            'num_rotatable_bonds',
         ]
+        
+        # 去重（以防万一还有重复）
+        protected_features = list(dict.fromkeys(protected_features))
+        print(f"Protected features count: {len(protected_features)}")
         
         # 动态识别稀疏特征（非零值比例小于10%的特征）
         for col in numeric_cols:
@@ -557,6 +594,315 @@ class DataPreprocessor:
         print("2. Report sensitivity analysis with relaxed labels")
         print("3. Clearly state that 'near-degenerate' are NOT rTADF")
         print("4. Consider reporting results stratified by gap ranges")
+        
+        return self
+
+    def extract_features_from_smiles(self):
+        """从SMILES提取分子结构和官能团特征"""
+        print("\n=== Extracting features from SMILES ===")
+        
+        from rdkit import Chem
+        from rdkit.Chem import Descriptors, Lipinski, rdMolDescriptors
+        import re
+        
+        # 检查SMILES列是否存在
+        smiles_col = None
+        for col in ['SMILES', 'smiles', 'Smiles']:
+            if col in self.df.columns:
+                smiles_col = col
+                break
+        
+        if smiles_col is None:
+            print("Warning: No SMILES column found! Cannot extract molecular features.")
+            return self
+        
+        print(f"Using SMILES column: {smiles_col}")
+        
+        # 初始化所有特征列
+        feature_cols = {
+            # 3ring取代基
+            'has_3ring': 0, 'has_3ring_nh2': 0, 'has_3ring_cn': 0, 'has_3ring_cf3': 0, 
+            'has_3ring_oh': 0, 'has_3ring_ome': 0, 'has_3ring_no': 0, 'has_3ring_no2': 0, 
+            'has_3ring_bh2': 0, 'has_3ring_sh': 0, 'has_3ring_ph': 0,
+            
+            # 5ring取代基
+            'has_5ring': 0, 'has_5ring_nh2': 0, 'has_5ring_cn': 0, 'has_5ring_cf3': 0,
+            'has_5ring_oh': 0, 'has_5ring_ome': 0, 'has_5ring_nme2': 0, 'has_5ring_nph3': 0,
+            'has_5ring_npme3': 0, 'has_5ring_me': 0, 'has_5ring_sh': 0, 'has_5ring_bh2': 0,
+            
+            # 7ring取代基
+            'has_7ring': 0,
+            
+            # 计数特征
+            'count_3ring_nh2': 0, 'count_3ring_cn': 0, 'count_3ring_cf3': 0, 'count_3ring_oh': 0,
+            'count_5ring_nh2': 0, 'count_5ring_cn': 0, 'count_5ring_oh': 0, 'count_5ring_nme2': 0,
+            'count_5ring_cf3': 0,
+            
+            # 通用官能团
+            'has_cyano': 0, 'has_nitro': 0, 'has_amino': 0, 'has_carbonyl': 0,
+            'has_sulfone': 0, 'has_triazine': 0, 'has_boron': 0, 'has_phosphorus': 0,
+            'has_triphenylamine': 0, 'has_carbazole': 0, 'has_halogen': 0,
+            'has_methyl': 0, 'has_trifluoromethyl': 0, 'has_phenyl': 0,
+            
+            'count_cyano': 0, 'count_nitro': 0, 'count_amino': 0, 'count_carbonyl': 0,
+            'count_triphenylamine': 0, 'count_carbazole': 0, 'count_triazine': 0,
+            'count_methyl': 0, 'count_halogen': 0,
+            
+            # 位置特征
+            'num_in_subs_3ring': 0, 'num_out_subs_3ring': 0,
+            'num_in_subs_5ring': 0, 'num_out_subs_5ring': 0,
+            'donor_on_3ring': 0, 'donor_on_5ring': 0,
+            'acceptor_on_3ring': 0, 'acceptor_on_5ring': 0,
+            
+            # 环系统特征
+            'num_aromatic_rings': 0, 'num_saturated_rings': 0,
+            'num_3_member_rings': 0, 'num_4_member_rings': 0, 
+            'num_5_member_rings': 0, 'num_6_member_rings': 0,
+            'num_7_member_rings': 0, 'num_8_member_rings': 0
+        }
+        
+        # 为每一列初始化
+        for col in feature_cols:
+            self.df[col] = 0
+        
+        # 定义SMARTS模式用于识别特定结构
+        smarts_patterns = {
+            # 官能团SMARTS
+            'cyano': 'C#N',
+            'nitro': '[N+](=O)[O-]',
+            'amino': '[NX3;H2,H1;!$(NC=O)]',  # 氨基，排除酰胺
+            'carbonyl': 'C=O',
+            'sulfone': 'S(=O)(=O)',
+            'triazine': 'c1ncncn1',
+            'carbazole': 'c1ccc2c(c1)[nH]c1ccccc12',
+            'triphenylamine': 'N(c1ccccc1)(c2ccccc2)c3ccccc3',
+            'trifluoromethyl': 'C(F)(F)F',
+            'methyl': '[CH3]',
+            'hydroxyl': '[OH]',
+            'methoxy': '[CH3]O',
+            'phenyl': 'c1ccccc1',
+            
+            # 三元环模式
+            'cyclopropane': 'C1CC1',
+            'cyclopropene': 'C1=CC1',
+            
+            # 五元环模式  
+            'cyclopentadiene': 'C1=CC=CC1',
+            'furan': 'c1ccoc1',
+            'thiophene': 'c1ccsc1',
+            'pyrrole': 'c1cc[nH]c1',
+            
+            # 七元环模式
+            'cycloheptatriene': 'C1=CC=CC=CC1',
+            'tropylium': '[c+]1cccccc1'
+        }
+        
+        # 处理每个分子
+        for idx, row in self.df.iterrows():
+            smiles = row[smiles_col]
+            mol_name = row.get('Molecule', '')
+            
+            if pd.isna(smiles):
+                continue
+                
+            try:
+                mol = Chem.MolFromSmiles(smiles)
+                if mol is None:
+                    print(f"Warning: Invalid SMILES at index {idx}: {smiles}")
+                    continue
+                
+                # 基础分子描述符
+                self.df.loc[idx, 'num_aromatic_rings'] = Descriptors.NumAromaticRings(mol)
+                self.df.loc[idx, 'num_saturated_rings'] = Descriptors.NumSaturatedRings(mol)
+                
+                # 环大小统计
+                ring_info = mol.GetRingInfo()
+                ring_sizes = [len(ring) for ring in ring_info.AtomRings()]
+                for size in ring_sizes:
+                    if size == 3:
+                        self.df.loc[idx, 'num_3_member_rings'] += 1
+                        self.df.loc[idx, 'has_3ring'] = 1
+                    elif size == 4:
+                        self.df.loc[idx, 'num_4_member_rings'] += 1
+                    elif size == 5:
+                        self.df.loc[idx, 'num_5_member_rings'] += 1
+                        self.df.loc[idx, 'has_5ring'] = 1
+                    elif size == 6:
+                        self.df.loc[idx, 'num_6_member_rings'] += 1
+                    elif size == 7:
+                        self.df.loc[idx, 'num_7_member_rings'] += 1
+                        self.df.loc[idx, 'has_7ring'] = 1
+                    elif size == 8:
+                        self.df.loc[idx, 'num_8_member_rings'] += 1
+                
+                # SMARTS模式匹配
+                for pattern_name, smarts in smarts_patterns.items():
+                    pattern = Chem.MolFromSmarts(smarts)
+                    if pattern:
+                        matches = mol.GetSubstructMatches(pattern)
+                        count = len(matches)
+                        
+                        if count > 0:
+                            # 通用官能团
+                            if pattern_name == 'cyano':
+                                self.df.loc[idx, 'has_cyano'] = 1
+                                self.df.loc[idx, 'count_cyano'] = count
+                            elif pattern_name == 'nitro':
+                                self.df.loc[idx, 'has_nitro'] = 1
+                                self.df.loc[idx, 'count_nitro'] = count
+                            elif pattern_name == 'amino':
+                                self.df.loc[idx, 'has_amino'] = 1
+                                self.df.loc[idx, 'count_amino'] = count
+                            elif pattern_name == 'carbonyl':
+                                self.df.loc[idx, 'has_carbonyl'] = 1
+                                self.df.loc[idx, 'count_carbonyl'] = count
+                            elif pattern_name == 'sulfone':
+                                self.df.loc[idx, 'has_sulfone'] = 1
+                            elif pattern_name == 'triazine':
+                                self.df.loc[idx, 'has_triazine'] = 1
+                                self.df.loc[idx, 'count_triazine'] = count
+                            elif pattern_name == 'carbazole':
+                                self.df.loc[idx, 'has_carbazole'] = 1
+                                self.df.loc[idx, 'count_carbazole'] = count
+                            elif pattern_name == 'triphenylamine':
+                                self.df.loc[idx, 'has_triphenylamine'] = 1
+                                self.df.loc[idx, 'count_triphenylamine'] = count
+                            elif pattern_name == 'trifluoromethyl':
+                                self.df.loc[idx, 'has_trifluoromethyl'] = 1
+                            elif pattern_name == 'methyl':
+                                self.df.loc[idx, 'has_methyl'] = 1
+                                self.df.loc[idx, 'count_methyl'] = count
+                            elif pattern_name == 'phenyl':
+                                self.df.loc[idx, 'has_phenyl'] = 1
+                
+                # 卤素检测
+                halogen_count = sum(1 for atom in mol.GetAtoms() if atom.GetSymbol() in ['F', 'Cl', 'Br', 'I'])
+                if halogen_count > 0:
+                    self.df.loc[idx, 'has_halogen'] = 1
+                    self.df.loc[idx, 'count_halogen'] = halogen_count
+                
+                # 硼和磷检测
+                if any(atom.GetSymbol() == 'B' for atom in mol.GetAtoms()):
+                    self.df.loc[idx, 'has_boron'] = 1
+                if any(atom.GetSymbol() == 'P' for atom in mol.GetAtoms()):
+                    self.df.loc[idx, 'has_phosphorus'] = 1
+                
+                # 结合分子名称信息（如果可用）来识别特定环上的取代基
+                if mol_name:
+                    mol_lower = mol_name.lower()
+                    
+                    # 3ring取代基检测
+                    if '3ring' in mol_lower:
+                        if 'nh2' in mol_lower:
+                            self.df.loc[idx, 'has_3ring_nh2'] = 1
+                            self.df.loc[idx, 'count_3ring_nh2'] = mol_lower.count('nh2')
+                        if 'cn' in mol_lower:
+                            self.df.loc[idx, 'has_3ring_cn'] = 1
+                            self.df.loc[idx, 'count_3ring_cn'] = mol_lower.count('cn')
+                        if 'cf3' in mol_lower:
+                            self.df.loc[idx, 'has_3ring_cf3'] = 1
+                            self.df.loc[idx, 'count_3ring_cf3'] = mol_lower.count('cf3')
+                        if 'oh' in mol_lower:
+                            self.df.loc[idx, 'has_3ring_oh'] = 1
+                            self.df.loc[idx, 'count_3ring_oh'] = mol_lower.count('oh')
+                        if 'ome' in mol_lower:
+                            self.df.loc[idx, 'has_3ring_ome'] = 1
+                        if 'no2' in mol_lower:
+                            self.df.loc[idx, 'has_3ring_no2'] = 1
+                        elif 'no' in mol_lower:
+                            self.df.loc[idx, 'has_3ring_no'] = 1
+                        if 'bh2' in mol_lower:
+                            self.df.loc[idx, 'has_3ring_bh2'] = 1
+                        if 'sh' in mol_lower:
+                            self.df.loc[idx, 'has_3ring_sh'] = 1
+                        if 'ph' in mol_lower:
+                            self.df.loc[idx, 'has_3ring_ph'] = 1
+                        
+                        # 位置信息
+                        if '_in' in mol_lower:
+                            self.df.loc[idx, 'num_in_subs_3ring'] = 1
+                        if '_out' in mol_lower:
+                            self.df.loc[idx, 'num_out_subs_3ring'] = 1
+                        
+                        # D/A分布
+                        if any(d in mol_lower for d in ['nh2', 'nme2', 'oh']):
+                            self.df.loc[idx, 'donor_on_3ring'] = 1
+                        if any(a in mol_lower for a in ['cn', 'no2', 'cf3']):
+                            self.df.loc[idx, 'acceptor_on_3ring'] = 1
+                    
+                    # 5ring取代基检测
+                    if '5ring' in mol_lower:
+                        if 'nh2' in mol_lower:
+                            self.df.loc[idx, 'has_5ring_nh2'] = 1
+                            self.df.loc[idx, 'count_5ring_nh2'] = mol_lower.count('nh2')
+                        if 'cn' in mol_lower:
+                            self.df.loc[idx, 'has_5ring_cn'] = 1
+                            self.df.loc[idx, 'count_5ring_cn'] = mol_lower.count('cn')
+                        if 'cf3' in mol_lower:
+                            self.df.loc[idx, 'has_5ring_cf3'] = 1
+                            self.df.loc[idx, 'count_5ring_cf3'] = mol_lower.count('cf3')
+                        if 'oh' in mol_lower:
+                            self.df.loc[idx, 'has_5ring_oh'] = 1
+                            self.df.loc[idx, 'count_5ring_oh'] = mol_lower.count('oh')
+                        if 'ome' in mol_lower:
+                            self.df.loc[idx, 'has_5ring_ome'] = 1
+                        if 'nme2' in mol_lower:
+                            self.df.loc[idx, 'has_5ring_nme2'] = 1
+                            self.df.loc[idx, 'count_5ring_nme2'] = 1
+                        if 'nph3' in mol_lower:
+                            self.df.loc[idx, 'has_5ring_nph3'] = 1
+                        if 'npme3' in mol_lower:
+                            self.df.loc[idx, 'has_5ring_npme3'] = 1
+                        if 'me' in mol_lower and 'nme' not in mol_lower:
+                            self.df.loc[idx, 'has_5ring_me'] = 1
+                        if 'sh' in mol_lower:
+                            self.df.loc[idx, 'has_5ring_sh'] = 1
+                        if 'bh2' in mol_lower:
+                            self.df.loc[idx, 'has_5ring_bh2'] = 1
+                        
+                        # 位置信息
+                        if '_in' in mol_lower:
+                            self.df.loc[idx, 'num_in_subs_5ring'] = 1
+                        if '_out' in mol_lower:
+                            self.df.loc[idx, 'num_out_subs_5ring'] = 1
+                        
+                        # D/A分布
+                        if any(d in mol_lower for d in ['nh2', 'nme2', 'nph3', 'oh']):
+                            self.df.loc[idx, 'donor_on_5ring'] = 1
+                        if any(a in mol_lower for a in ['cn', 'no2', 'cf3']):
+                            self.df.loc[idx, 'acceptor_on_5ring'] = 1
+                    
+                    # 特殊分子类型识别
+                    if 'sesqui' in mol_lower:
+                        self.df.loc[idx, 'num_aromatic_rings'] = max(3, self.df.loc[idx, 'num_aromatic_rings'])
+                    elif 'calicene' in mol_lower:
+                        self.df.loc[idx, 'num_aromatic_rings'] = max(2, self.df.loc[idx, 'num_aromatic_rings'])
+                        
+            except Exception as e:
+                print(f"Error processing SMILES at index {idx}: {e}")
+                continue
+        
+        # 统计结果
+        print(f"\nFeatures extracted from SMILES:")
+        important_features = [
+            'has_3ring', 'has_5ring', 'has_7ring',
+            'has_cyano', 'has_nitro', 'has_amino', 'has_carbonyl',
+            'has_triphenylamine', 'has_carbazole',
+            'num_aromatic_rings', 'num_3_member_rings', 'num_5_member_rings'
+        ]
+        
+        for feat in important_features:
+            if feat in self.df.columns:
+                non_zero = (self.df[feat] != 0).sum()
+                print(f"  {feat}: {non_zero} molecules")
+        
+        # 验证提取的特征
+        print(f"\nVerification of extracted features:")
+        print(f"  Total molecules processed: {len(self.df)}")
+        print(f"  Molecules with 3-membered rings: {(self.df['has_3ring'] > 0).sum()}")
+        print(f"  Molecules with 5-membered rings: {(self.df['has_5ring'] > 0).sum()}")
+        print(f"  Molecules with cyano groups: {(self.df['has_cyano'] > 0).sum()}")
+        print(f"  Molecules with amino groups: {(self.df['has_amino'] > 0).sum()}")
         
         return self
     def split_data(self, test_size=0.2, val_size=0.1, use_features=None, use_molecular_split=True):

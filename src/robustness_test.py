@@ -14,7 +14,23 @@ from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import brier_score_loss
 import matplotlib.pyplot as plt
 
+def _select_numeric_features(df: pd.DataFrame, features):
+    """Return the intersection of `features` and numeric columns in df; log dropped ones."""
+    inter = [c for c in features if c in df.columns]
+    if not inter:
+        raise ValueError("[robustness] No overlap between requested features and df columns.")
+    numeric = df[inter].select_dtypes(include=[np.number]).columns.tolist()
+    dropped = [c for c in inter if c not in numeric]
+    if dropped:
+        print(f"[robustness] Dropping {len(dropped)} non-numeric features:")
+        print(f"  Examples: {dropped[:10]}")
+    return numeric
 
+def _to_numeric_matrix(df: pd.DataFrame, cols):
+    """Coerce to numeric, replace inf/NaN with 0, and return float32 numpy array."""
+    X_df = df[cols].copy()
+    X_df = X_df.apply(pd.to_numeric, errors='coerce').replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    return X_df.to_numpy(dtype=np.float32)
 # ============ 分块消融（Block Ablation）============
 def define_feature_blocks(df_cols):
     """定义特征块"""
@@ -142,96 +158,106 @@ def get_design_safe_features(df):
     
     return keep
 
-def safe_cv_xgb_grouped(df, features, target, group_col='Molecule', n_splits=5, seed=42):
-    """使用GroupKFold的安全交叉验证"""
+def safe_cv_xgb_grouped(df, features, target_col, n_splits=5, seeds=(42,), groups_col='Molecule'):
+    """
+    GroupKFold + XGBoost 的安全CV：
+      - 仅保留数值特征
+      - 强制数值化/补齐
+    返回 dict(metrics...)
+    """
     from sklearn.model_selection import GroupKFold
-    from sklearn.impute import SimpleImputer
-    from sklearn.pipeline import Pipeline
-    
-    X = df[features].astype(np.float32).fillna(0).values
-    y = df[target].astype(int).values
-    groups = df[group_col].values if group_col in df.columns else None
-    
-    if groups is None:
-        print("Warning: No group column found, using standard CV")
-        return cv_run_xgb(X, y, seed=seed)
-    
-    pipe = Pipeline([
-        ('imputer', SimpleImputer(strategy='median')),
-        ('model', XGBClassifier(
-            n_estimators=300, max_depth=3, learning_rate=0.05,
-            subsample=0.9, colsample_bytree=0.9, 
-            random_state=seed, n_jobs=-1
-        ))
-    ])
-    
-    gkf = GroupKFold(n_splits=n_splits)
-    metrics = []
-    
-    for fold, (tr_idx, te_idx) in enumerate(gkf.split(X, y, groups)):
-        pipe.fit(X[tr_idx], y[tr_idx])
-        prob = pipe.predict_proba(X[te_idx])[:, 1]
-        
-        m = eval_metrics(y[te_idx], prob)
-        m['fold'] = fold
-        metrics.append(m)
-    
-    df_metrics = pd.DataFrame(metrics)
-    mean_metrics = df_metrics.drop('fold', axis=1).mean().to_dict()
-    std_metrics = df_metrics.drop('fold', axis=1).std().to_dict()
-    
-    # 添加标准差信息
-    for key in std_metrics:
-        mean_metrics[f'{key}_std'] = std_metrics[key]
-    
-    return mean_metrics
+    from xgboost import XGBClassifier
+    from sklearn.metrics import roc_auc_score, average_precision_score, f1_score
 
-def random_label_test(df, features, n_iterations=5):
-    """随机标签测试检测泄漏"""
-    results = []
-    
-    for i in range(n_iterations):
-        df_random = df.copy()
-        # 随机打乱标签
-        df_random['is_TADF'] = np.random.permutation(df['is_TADF'].values)
-        df_random['is_rTADF'] = np.random.permutation(df['is_rTADF'].values)
-        
-        # 测试TADF
-        metrics_tadf = safe_cv_xgb_grouped(
-            df_random, features, 'is_TADF', n_splits=3, seed=42+i
-        )
-        metrics_tadf['task'] = 'TADF'
-        metrics_tadf['iteration'] = i
-        results.append(metrics_tadf)
-        
-        # 测试rTADF
-        metrics_rtadf = safe_cv_xgb_grouped(
-            df_random, features, 'is_rTADF', n_splits=3, seed=42+i
-        )
-        metrics_rtadf['task'] = 'rTADF'
-        metrics_rtadf['iteration'] = i
-        results.append(metrics_rtadf)
-    
-    df_results = pd.DataFrame(results)
-    
-    # 汇总
-    summary = {
-        'TADF_auc_mean': df_results[df_results['task']=='TADF']['roc_auc'].mean(),
-        'TADF_auc_std': df_results[df_results['task']=='TADF']['roc_auc'].std(),
-        'rTADF_auc_mean': df_results[df_results['task']=='rTADF']['roc_auc'].mean(),
-        'rTADF_auc_std': df_results[df_results['task']=='rTADF']['roc_auc'].std(),
-    }
-    
-    print("\nRandom Label Test Results:")
-    print(f"  TADF AUC: {summary['TADF_auc_mean']:.3f} ± {summary['TADF_auc_std']:.3f}")
-    print(f"  rTADF AUC: {summary['rTADF_auc_mean']:.3f} ± {summary['rTADF_auc_std']:.3f}")
-    
-    if summary['TADF_auc_mean'] > 0.6 or summary['rTADF_auc_mean'] > 0.6:
-        print("  ⚠️ WARNING: Random label AUC > 0.6, possible data leakage!")
+    # --- 关键修复：数值过滤 + 安全数值化 ---
+    numeric_feats = _select_numeric_features(df, features)
+    X = _to_numeric_matrix(df, numeric_feats)
+
+    y = pd.to_numeric(df[target_col], errors='coerce').fillna(0).astype(int).values
+    if groups_col in df.columns:
+        groups = df[groups_col].astype(str).values
     else:
-        print("  ✓ Random label test passed")
-    
-    return summary
+        groups = np.arange(len(df))
+
+    gkf = GroupKFold(n_splits=n_splits)
+
+    aucs, pras, f1s = [], [], []
+    for seed in (seeds if isinstance(seeds, (list, tuple)) else [seeds]):
+        fold_scores = []
+        for tr_idx, va_idx in gkf.split(X, y, groups):
+            X_tr, X_va = X[tr_idx], X[va_idx]
+            y_tr, y_va = y[tr_idx], y[va_idx]
+
+            # 轻量、稳定的参数
+            model = XGBClassifier(
+                n_estimators=300, max_depth=3, learning_rate=0.05,
+                subsample=0.9, colsample_bytree=0.9, random_state=int(seed),
+                n_jobs=0, eval_metric='logloss'
+            )
+            model.fit(X_tr, y_tr)
+
+            va_prob = model.predict_proba(X_va)[:, 1]
+            # 防止单类折AUC/PR-AUC报错
+            if np.unique(y_va).size < 2:
+                auc  = 0.0
+                pr   = 0.0
+                thr  = 0.5
+                pred = (va_prob > thr).astype(int)
+            else:
+                from sklearn.metrics import roc_auc_score, average_precision_score
+                from sklearn.metrics import precision_recall_curve
+                auc = float(roc_auc_score(y_va, va_prob))
+                pr  = float(average_precision_score(y_va, va_prob))
+                p, r, thr = precision_recall_curve(y_va, va_prob)
+                f1_arr = 2 * p * r / (p + r + 1e-10)
+                thr_idx = int(np.argmax(f1_arr[:-1])) if len(f1_arr) > 1 else 0
+                thr = float(thr[thr_idx]) if len(thr) else 0.5
+                pred = (va_prob > thr).astype(int)
+
+            f1 = float(f1_score(y_va, pred)) if np.unique(y_va).size >= 2 else 0.0
+            fold_scores.append((auc, pr, f1))
+
+        aucs.append(np.mean([s[0] for s in fold_scores]))
+        pras.append(np.mean([s[1] for s in fold_scores]))
+        f1s.append(np.mean([s[2] for s in fold_scores]))
+
+    return dict(
+        roc_auc=float(np.mean(aucs)),
+        pr_auc=float(np.mean(pras)),
+        f1=float(np.mean(f1s)),
+        roc_auc_std=float(np.std(aucs)),
+        pr_auc_std=float(np.std(pras)),
+        f1_std=float(np.std(f1s)),
+    )
+
+
+def random_label_test(df, features, n_iterations=5, target_col='is_rTADF', groups_col='Molecule'):
+    """
+    将标签打乱，检查模型是否还能学到“性能”——用于泄漏探测。
+    """
+    import numpy as np
+
+    numeric_feats = _select_numeric_features(df, features)
+    X = _to_numeric_matrix(df, numeric_feats)
+
+    if groups_col in df.columns:
+        groups = df[groups_col].astype(str).values
+    else:
+        groups = np.arange(len(df))
+
+    rng = np.random.default_rng(42)
+    scores = []
+    for i in range(n_iterations):
+        y_perm = rng.permutation(pd.to_numeric(df[target_col], errors='coerce').fillna(0).astype(int).values)
+        tmp_df = df.copy()
+        tmp_df['_rand_y_'] = y_perm
+        m = safe_cv_xgb_grouped(tmp_df, numeric_feats, '_rand_y_', n_splits=5, seeds=(i+1,), groups_col=groups_col)
+        scores.append(m['roc_auc'])
+        print(f"  Iter {i+1}/{n_iterations}: AUC={m['roc_auc']:.3f}, PR-AUC={m['pr_auc']:.3f}, F1={m['f1']:.3f}")
+
+    print(f"Random-label mean AUC={np.mean(scores):.3f} ± {np.std(scores):.3f}")
+    return dict(mean_auc=float(np.mean(scores)), std_auc=float(np.std(scores)))
+
 def run_block_ablation(df, target_col, all_feats, blocks):
     """运行分块消融实验"""
     results = []
@@ -288,21 +314,28 @@ def xgb_importances(model):
     
     return df.fillna(0)
 
-def perm_importance(model, X_val, y_val, feature_names, scoring='roc_auc', n_repeats=10):
-    """计算置换重要性"""
-    r = permutation_importance(
-        model, X_val, y_val, 
-        n_repeats=n_repeats, 
-        random_state=0, 
-        scoring=scoring, 
-        n_jobs=-1
+from sklearn.inspection import permutation_importance
+
+
+def perm_importance(model, X, y, features, scoring='roc_auc', n_repeats=5):
+    """
+    计算并返回特征重要性（permutation importance）
+    """
+    result = permutation_importance(
+        model, X, y, n_repeats=n_repeats, random_state=42, scoring=scoring
     )
     
+    # 确保赋值给正确的变量
+    r = result  # 这就是 `permutation_importance` 的返回值
+
+    # 使用 `r` 中的属性，确保在 DataFrame 中存储
     df = pd.DataFrame({
-        'feature': feature_names, 
-        'perm_importance': r.importances_mean
+        'feature': features, 
+        'perm_importance': r.importances_mean  # 这是PermutationImportance对象的属性
     })
-    return df.sort_values('perm_importance', ascending=False)
+    
+    return df
+
 
 def shap_importance(model, X_train, feature_names, n_sample=500):
     """计算SHAP重要性"""

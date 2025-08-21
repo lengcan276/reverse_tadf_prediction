@@ -989,32 +989,45 @@ class DataPreprocessor:
             raise ValueError("No valid feature columns found!")
         
         # ========= 准备特征和标签 =========
-        # 提取特征 - 确保完全是数值型
-        X_df = self.df[feature_cols].copy()
-        
-        # 填充缺失值
-        X_df = X_df.fillna(0)
-        
-        # 强制转换为float64，确保没有object类型
-        X = X_df.astype(np.float64).values
-        
-        # 检查是否有无效值
-        if np.any(np.isnan(X)):
-            print("Warning: Found NaN values after conversion, replacing with 0")
+        # 仅从当前候选特征中保留数值列，避免 'C10H8N6' 等文本进入
+        X_df_raw = self.df[feature_cols].copy()
+
+        # 1) 只保留数值列
+        numeric_cols = X_df_raw.select_dtypes(include=[np.number]).columns.tolist()
+        dropped = [c for c in feature_cols if c not in numeric_cols]
+        if dropped:
+            print(f"[split_data] Dropping {len(dropped)} non-numeric columns:")
+            print(f"  Examples: {dropped[:10]}")
+
+        # 2) 形成纯数值特征表
+        X_df = X_df_raw[numeric_cols].copy()
+
+        # 3) 兜底：强制转数值，无法解析的置 NaN（通常不会发生，因为已是数值列）
+        X_df = X_df.apply(pd.to_numeric, errors='coerce')
+
+        # 4) 缺失补零
+        X_df = X_df.fillna(0.0)
+
+        # 5) 转 numpy
+        X = X_df.to_numpy(dtype=np.float64)
+
+        # 6) 健壮性检查
+        if not np.isfinite(X).all():
+            print("[split_data] Found non-finite values, replacing with 0")
             X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
-        
-        if np.any(np.isinf(X)):
-            print("Warning: Found infinite values, replacing with 0")
-            X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
-        
+
+        # 7) 用“纯数值特征列”覆盖 feature_cols，确保后续一致
+        feature_cols = numeric_cols
+        self.feature_cols = feature_cols
+
         # 提取标签
         y_tadf = self.df['is_TADF'].astype(np.float32).values
         y_rtadf = self.df['is_rTADF'].astype(np.float32).values
-        
+
         print(f"Feature matrix shape: {X.shape}, dtype: {X.dtype}")
         print(f"TADF labels shape: {y_tadf.shape}, dtype: {y_tadf.dtype}")
         print(f"rTADF labels shape: {y_rtadf.shape}, dtype: {y_rtadf.dtype}")
-        
+
         # 验证数据类型
         assert X.dtype in [np.float64, np.float32], f"X has wrong dtype: {X.dtype}"
         assert y_tadf.dtype in [np.float64, np.float32, np.int32, np.int64], f"y_tadf has wrong dtype: {y_tadf.dtype}"
